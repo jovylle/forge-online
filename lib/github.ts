@@ -1,5 +1,5 @@
-import { getGitHubEnv } from "@/lib/env";
 import { updateSyncState, upsertGitHubRepositories } from "@/lib/db";
+import { ConfigError, getGitHubEnv } from "@/lib/env";
 import type { GitHubRepositoryResponse, GitHubSyncSummary } from "@/lib/types";
 
 const GITHUB_API_URL = "https://api.github.com";
@@ -60,7 +60,46 @@ async function requestGitHub<T>(path: string, token?: string): Promise<T> {
     );
   }
 
-  return response.json() as Promise<T>;
+  const raw = await response.text();
+  if (!raw.trim()) {
+    throw new GitHubApiError(
+      "GitHub returned an empty response body.",
+      502,
+      "GitHub returned an unexpected empty response. Try again shortly.",
+    );
+  }
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new GitHubApiError(
+      "GitHub response was not valid JSON.",
+      502,
+      "GitHub returned a non-JSON response (often rate limiting or a proxy error). Check Netlify logs and try again.",
+    );
+  }
+}
+
+const MAX_CLIENT_ERROR_LENGTH = 400;
+
+function safeSyncFailureMessage(error: unknown): string {
+  if (error instanceof GitHubApiError) {
+    return error.userMessage;
+  }
+
+  if (error instanceof ConfigError) {
+    return error.message;
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    let text = error.message.trim();
+    if (text.length > MAX_CLIENT_ERROR_LENGTH) {
+      text = `${text.slice(0, MAX_CLIENT_ERROR_LENGTH)}…`;
+    }
+    return `Sync failed: ${text}`;
+  }
+
+  return "GitHub sync failed unexpectedly. Check the server logs for details.";
 }
 
 async function fetchAllPages(
@@ -140,16 +179,17 @@ export async function syncGitHubRepositories(): Promise<GitHubSyncSummary> {
     };
   } catch (error) {
     const completedAt = new Date().toISOString();
-    const message =
-      error instanceof GitHubApiError
-        ? error.userMessage
-        : "GitHub sync failed unexpectedly. Check the server logs for details.";
+    const message = safeSyncFailureMessage(error);
 
-    await updateSyncState({
-      lastSyncedAt: completedAt,
-      status: "error",
-      message,
-    });
+    try {
+      await updateSyncState({
+        lastSyncedAt: completedAt,
+        status: "error",
+        message,
+      });
+    } catch {
+      // If we cannot persist error state, still surface the root failure below.
+    }
 
     if (error instanceof GitHubApiError) {
       throw error;

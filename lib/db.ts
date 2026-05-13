@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type PostgrestError } from "@supabase/supabase-js";
 
 import { getSupabaseEnv } from "@/lib/env";
 import { enrichRepoWithStatus } from "@/lib/status";
@@ -121,9 +121,17 @@ function mapSyncStateRow(row: SyncStateRow): SyncState {
   };
 }
 
-function assertNoError(error: { message: string } | null) {
+function formatSupabaseError(error: PostgrestError) {
+  const parts = [error.message, error.details, error.hint].filter(
+    (part): part is string => Boolean(part && String(part).trim()),
+  );
+  const base = parts.join(" — ").trim() || "Supabase request failed";
+  return error.code ? `${base} (code ${error.code})` : base;
+}
+
+function assertNoError(error: PostgrestError | null) {
   if (error) {
-    throw new Error(error.message);
+    throw new Error(formatSupabaseError(error));
   }
 }
 
@@ -240,34 +248,14 @@ export async function updateSyncState(
   return mapSyncStateRow(result.data as SyncStateRow);
 }
 
-export async function upsertGitHubRepositories(
-  repositories: GitHubRepositoryResponse[],
+const UPSERT_CHUNK_SIZE = 100;
+
+function mapRepoToRow(
+  repo: GitHubRepositoryResponse,
   mode: GitHubSyncSummary["mode"],
+  syncedAt: string,
 ) {
-  if (repositories.length === 0) {
-    return {
-      inserted: 0,
-      updated: 0,
-      skipped: 0,
-      syncedAt: new Date().toISOString(),
-    };
-  }
-
-  const supabase = getSupabaseAdmin();
-  const githubRepoIds = repositories.map((repo) => repo.id);
-  const existingResult = await supabase
-    .from("repositories")
-    .select("github_repo_id")
-    .in("github_repo_id", githubRepoIds);
-
-  assertNoError(existingResult.error);
-
-  const existingIds = new Set(
-    (existingResult.data ?? []).map((row) => row.github_repo_id as number),
-  );
-  const syncedAt = new Date().toISOString();
-
-  const rows = repositories.map((repo) => ({
+  return {
     github_repo_id: repo.id,
     name: repo.name,
     full_name: repo.full_name,
@@ -286,17 +274,58 @@ export async function upsertGitHubRepositories(
     stargazer_count: repo.stargazers_count,
     last_synced_at: syncedAt,
     sync_source: mode,
-  }));
+  };
+}
 
-  const upsertResult = await supabase
-    .from("repositories")
-    .upsert(rows, { onConflict: "github_repo_id" })
-    .select("github_repo_id");
+export async function upsertGitHubRepositories(
+  repositories: GitHubRepositoryResponse[],
+  mode: GitHubSyncSummary["mode"],
+) {
+  if (repositories.length === 0) {
+    return {
+      inserted: 0,
+      updated: 0,
+      skipped: 0,
+      syncedAt: new Date().toISOString(),
+    };
+  }
 
-  assertNoError(upsertResult.error);
+  const supabase = getSupabaseAdmin();
+  const syncedAt = new Date().toISOString();
 
-  const inserted = rows.filter((row) => !existingIds.has(row.github_repo_id)).length;
-  const updated = rows.length - inserted;
+  let inserted = 0;
+  let updated = 0;
+
+  for (let i = 0; i < repositories.length; i += UPSERT_CHUNK_SIZE) {
+    const chunk = repositories.slice(i, i + UPSERT_CHUNK_SIZE);
+    const chunkIds = chunk.map((repo) => repo.id);
+
+    const existingResult = await supabase
+      .from("repositories")
+      .select("github_repo_id")
+      .in("github_repo_id", chunkIds);
+
+    assertNoError(existingResult.error);
+
+    const existingIds = new Set(
+      (existingResult.data ?? []).map((row) => row.github_repo_id as number),
+    );
+
+    const rows = chunk.map((repo) => mapRepoToRow(repo, mode, syncedAt));
+
+    const upsertResult = await supabase
+      .from("repositories")
+      .upsert(rows, { onConflict: "github_repo_id" })
+      .select("github_repo_id");
+
+    assertNoError(upsertResult.error);
+
+    const chunkInserted = rows.filter(
+      (row) => !existingIds.has(row.github_repo_id),
+    ).length;
+    inserted += chunkInserted;
+    updated += rows.length - chunkInserted;
+  }
 
   return {
     inserted,
