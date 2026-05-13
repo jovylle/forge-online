@@ -13,14 +13,21 @@ const authEnvSchema = z.object({
   SESSION_SECRET: z.string().trim().min(32),
 });
 
+/** Netlify and other hosts often set unset vars to "" — treat as missing. */
+function emptyGithubTokenToUndefined(value: unknown) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const trimmed = String(value).trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 const githubEnvSchema = z.object({
   GITHUB_USERNAME: z.string().trim().min(1),
-  GITHUB_TOKEN: z
-    .string()
-    .trim()
-    .min(1)
-    .optional()
-    .transform((value) => value || undefined),
+  GITHUB_TOKEN: z.preprocess(
+    emptyGithubTokenToUndefined,
+    z.string().min(1).optional(),
+  ),
 });
 
 const supabaseEnvSchema = z.object({
@@ -32,8 +39,11 @@ function parseEnv<T>(schema: z.ZodType<T>, values: unknown, scope: string): T {
   const parsed = schema.safeParse(values);
 
   if (!parsed.success) {
+    const detail = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("; ");
     throw new ConfigError(
-      `Missing or invalid ${scope} environment variables. Check .env.example and your deployment settings.`,
+      `Missing or invalid ${scope} environment variables (${detail}). Check .env.example and your deployment settings.`,
     );
   }
 
