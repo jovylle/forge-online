@@ -13,6 +13,7 @@ import type {
   DashboardRepo,
   RepoMetadataInput,
   RepoViewType,
+  SortDirection,
   SortOption,
   StatusFilter,
   VisibilityFilter,
@@ -38,7 +39,15 @@ function repoSearchText(repo: DashboardRepo) {
     .toLowerCase();
 }
 
-function sortRepos(repos: DashboardRepo[], sortBy: SortOption) {
+function isDateSort(sortBy: SortOption) {
+  return sortBy === "created" || sortBy === "pushed" || sortBy === "updated";
+}
+
+function sortRepos(
+  repos: DashboardRepo[],
+  sortBy: SortOption,
+  sortDirection: SortDirection,
+) {
   return [...repos].sort((a, b) => {
     if (sortBy === "name") {
       return a.name.localeCompare(b.name);
@@ -61,7 +70,14 @@ function sortRepos(repos: DashboardRepo[], sortBy: SortOption) {
           ? Date.parse(b.updatedAtGithub ?? "")
           : Date.parse(b.pushedAtGithub ?? "");
 
-    return (Number.isNaN(right) ? 0 : right) - (Number.isNaN(left) ? 0 : left);
+    const comparison =
+      (Number.isNaN(right) ? 0 : right) - (Number.isNaN(left) ? 0 : left);
+
+    if (!isDateSort(sortBy)) {
+      return comparison;
+    }
+
+    return sortDirection === "asc" ? -comparison : comparison;
   });
 }
 
@@ -72,6 +88,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   const [visibilityFilter, setVisibilityFilter] =
     useState<VisibilityFilter>("all");
   const [sortBy, setSortBy] = useState<SortOption>("pushed");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [viewType, setViewType] = useState<RepoViewType>("cards");
   const [isSyncing, setIsSyncing] = useState(false);
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
@@ -164,8 +181,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return repoSearchText(repo).includes(lowerSearch);
     });
 
-    return sortRepos(repos, sortBy);
-  }, [data.repos, search, sortBy, statusFilter, visibilityFilter]);
+    return sortRepos(repos, sortBy, sortDirection);
+  }, [data.repos, search, sortBy, sortDirection, statusFilter, visibilityFilter]);
 
   return (
     <div className="space-y-6">
@@ -211,6 +228,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         onVisibilityFilterChange={setVisibilityFilter}
         sortBy={sortBy}
         onSortByChange={setSortBy}
+        sortDirection={sortDirection}
+        onSortDirectionChange={setSortDirection}
         viewType={viewType}
         onViewTypeChange={setViewType}
       />

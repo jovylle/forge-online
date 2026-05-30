@@ -1,5 +1,6 @@
 import type {
   RepoViewType,
+  SortDirection,
   SortOption,
   StatusFilter,
   VisibilityFilter,
@@ -14,6 +15,8 @@ type RepoToolbarProps = {
   onVisibilityFilterChange: (value: VisibilityFilter) => void;
   sortBy: SortOption;
   onSortByChange: (value: SortOption) => void;
+  sortDirection: SortDirection;
+  onSortDirectionChange: (value: SortDirection) => void;
   viewType: RepoViewType;
   onViewTypeChange: (value: RepoViewType) => void;
 };
@@ -27,9 +30,14 @@ export function RepoToolbar({
   onVisibilityFilterChange,
   sortBy,
   onSortByChange,
+  sortDirection,
+  onSortDirectionChange,
   viewType,
   onViewTypeChange,
 }: RepoToolbarProps) {
+  const isDateSort =
+    sortBy === "created" || sortBy === "pushed" || sortBy === "updated";
+
   return (
     <div className="grid gap-4 rounded-3xl border border-white/10 bg-white/5 p-4 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px_160px]">
       <label className="block">
@@ -82,17 +90,32 @@ export function RepoToolbar({
         <span className="mb-2 block text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
           Sort
         </span>
-        <select
-          value={sortBy}
-          onChange={(event) => onSortByChange(event.target.value as SortOption)}
-          className="w-full rounded-2xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-400"
-        >
-          <option value="created">Created date</option>
-          <option value="pushed">Pushed date</option>
-          <option value="updated">Updated date</option>
-          <option value="name">Name</option>
-          <option value="status">Status</option>
-        </select>
+        <div className="flex gap-2">
+          <select
+            value={sortBy}
+            onChange={(event) => onSortByChange(event.target.value as SortOption)}
+            className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-400"
+          >
+            <option value="created">Created date</option>
+            <option value="pushed">Pushed date</option>
+            <option value="updated">Updated date</option>
+            <option value="name">Name</option>
+            <option value="status">Status</option>
+          </select>
+          {isDateSort ? (
+            <select
+              value={sortDirection}
+              onChange={(event) =>
+                onSortDirectionChange(event.target.value as SortDirection)
+              }
+              aria-label="Sort order"
+              className="w-[7.5rem] shrink-0 rounded-2xl border border-white/10 bg-zinc-950/80 px-3 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-400"
+            >
+              <option value="desc">Newest</option>
+              <option value="asc">Oldest</option>
+            </select>
+          ) : null}
+        </div>
       </label>
 
       <label className="block">

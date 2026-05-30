@@ -3,6 +3,7 @@ export const STATUS_VALUES = ["active", "wip", "abandoned", "done"] as const;
 export type RepoStatus = (typeof STATUS_VALUES)[number];
 
 export type SortOption = "created" | "pushed" | "updated" | "name" | "status";
+export type SortDirection = "asc" | "desc";
 export type VisibilityFilter = "all" | "public" | "private";
 export type StatusFilter = "all" | RepoStatus;
 export type RepoViewType = "cards" | "list" | "table";
