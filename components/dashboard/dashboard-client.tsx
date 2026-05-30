@@ -12,6 +12,7 @@ import type {
   DashboardPayload,
   DashboardRepo,
   RepoMetadataInput,
+  RepoViewType,
   SortOption,
   StatusFilter,
   VisibilityFilter,
@@ -71,6 +72,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   const [visibilityFilter, setVisibilityFilter] =
     useState<VisibilityFilter>("all");
   const [sortBy, setSortBy] = useState<SortOption>("pushed");
+  const [viewType, setViewType] = useState<RepoViewType>("cards");
   const [isSyncing, setIsSyncing] = useState(false);
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
 
@@ -209,6 +211,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         onVisibilityFilterChange={setVisibilityFilter}
         sortBy={sortBy}
         onSortByChange={setSortBy}
+        viewType={viewType}
+        onViewTypeChange={setViewType}
       />
 
       <div className="flex items-center justify-between px-1 text-sm text-zinc-400">
@@ -218,7 +222,11 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         </p>
       </div>
 
-      <RepoGrid repos={filteredRepos} onSaveMetadata={handleSaveMetadata} />
+      <RepoGrid
+        repos={filteredRepos}
+        viewType={viewType}
+        onSaveMetadata={handleSaveMetadata}
+      />
     </div>
   );
 }

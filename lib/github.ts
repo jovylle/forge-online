@@ -137,6 +137,25 @@ export async function fetchOwnedRepositories(session: SessionUser) {
   };
 }
 
+export async function fetchPublicRepositoriesByUsername(username: string) {
+  const normalizedUsername = username.trim();
+
+  if (!normalizedUsername) {
+    throw new GitHubApiError(
+      "Guest username is required.",
+      400,
+      "Enter a GitHub username to continue in guest mode.",
+    );
+  }
+
+  const repos = await fetchAllPages(
+    (page) =>
+      `/users/${encodeURIComponent(normalizedUsername)}/repos?type=owner&sort=updated&per_page=${PAGE_SIZE}&page=${page}`,
+  );
+
+  return repos.filter((repo) => !repo.private);
+}
+
 export async function syncGitHubRepositories(
   session: SessionUser,
 ): Promise<GitHubSyncSummary> {

@@ -1,4 +1,9 @@
-import type { SortOption, StatusFilter, VisibilityFilter } from "@/lib/types";
+import type {
+  RepoViewType,
+  SortOption,
+  StatusFilter,
+  VisibilityFilter,
+} from "@/lib/types";
 
 type RepoToolbarProps = {
   search: string;
@@ -9,6 +14,8 @@ type RepoToolbarProps = {
   onVisibilityFilterChange: (value: VisibilityFilter) => void;
   sortBy: SortOption;
   onSortByChange: (value: SortOption) => void;
+  viewType: RepoViewType;
+  onViewTypeChange: (value: RepoViewType) => void;
 };
 
 export function RepoToolbar({
@@ -20,9 +27,11 @@ export function RepoToolbar({
   onVisibilityFilterChange,
   sortBy,
   onSortByChange,
+  viewType,
+  onViewTypeChange,
 }: RepoToolbarProps) {
   return (
-    <div className="grid gap-4 rounded-3xl border border-white/10 bg-white/5 p-4 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px]">
+    <div className="grid gap-4 rounded-3xl border border-white/10 bg-white/5 p-4 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px_160px]">
       <label className="block">
         <span className="mb-2 block text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
           Search
@@ -83,6 +92,21 @@ export function RepoToolbar({
           <option value="updated">Updated date</option>
           <option value="name">Name</option>
           <option value="status">Status</option>
+        </select>
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
+          View
+        </span>
+        <select
+          value={viewType}
+          onChange={(event) => onViewTypeChange(event.target.value as RepoViewType)}
+          className="w-full rounded-2xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-400"
+        >
+          <option value="cards">Cards</option>
+          <option value="list">Compact list</option>
+          <option value="table">Table</option>
         </select>
       </label>
     </div>

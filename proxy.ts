@@ -9,7 +9,11 @@ function isPublicPath(pathname: string) {
     return true;
   }
 
-  return pathname.startsWith("/_next/") || pathname.startsWith("/api/auth/");
+  return (
+    pathname.startsWith("/_next/") ||
+    pathname.startsWith("/api/auth/") ||
+    pathname.startsWith("/guest/")
+  );
 }
 
 function redirectToLogin(request: NextRequest) {

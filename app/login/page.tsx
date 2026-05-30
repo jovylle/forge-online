@@ -46,7 +46,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               </h1>
               <p className="max-w-2xl text-base leading-7 text-zinc-300 sm:text-lg">
                 Sign in with GitHub, sync repositories (including private repos when
-                authorized), and keep Forge-style notes without local setup.
+                authorized), and keep Forge-style notes without local setup. Or
+                continue as guest to explore public repositories only.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
