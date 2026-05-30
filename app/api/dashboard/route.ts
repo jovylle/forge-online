@@ -6,9 +6,9 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await requireApiSession();
+    const session = await requireApiSession();
 
-    const payload = await getDashboardData();
+    const payload = await getDashboardData(session);
     return Response.json(payload);
   } catch (error) {
     return errorResponse(error);

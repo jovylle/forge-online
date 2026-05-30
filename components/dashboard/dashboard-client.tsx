@@ -48,13 +48,17 @@ function sortRepos(repos: DashboardRepo[], sortBy: SortOption) {
     }
 
     const left =
-      sortBy === "updated"
-        ? Date.parse(a.updatedAtGithub ?? "")
-        : Date.parse(a.pushedAtGithub ?? "");
+      sortBy === "created"
+        ? Date.parse(a.createdAtGithub ?? "")
+        : sortBy === "updated"
+          ? Date.parse(a.updatedAtGithub ?? "")
+          : Date.parse(a.pushedAtGithub ?? "");
     const right =
-      sortBy === "updated"
-        ? Date.parse(b.updatedAtGithub ?? "")
-        : Date.parse(b.pushedAtGithub ?? "");
+      sortBy === "created"
+        ? Date.parse(b.createdAtGithub ?? "")
+        : sortBy === "updated"
+          ? Date.parse(b.updatedAtGithub ?? "")
+          : Date.parse(b.pushedAtGithub ?? "");
 
     return (Number.isNaN(right) ? 0 : right) - (Number.isNaN(left) ? 0 : left);
   });

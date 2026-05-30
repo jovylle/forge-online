@@ -46,7 +46,7 @@ export function errorResponse(error: unknown) {
   }
 
   if (error instanceof Error) {
-    return Response.json({ error: error.message }, { status: 400 });
+    return Response.json({ error: error.message }, { status: 500 });
   }
 
   return Response.json({ error: "Unexpected server error." }, { status: 500 });

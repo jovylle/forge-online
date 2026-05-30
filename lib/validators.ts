@@ -12,11 +12,6 @@ const nullableTrimmedText = (maxLength: number) =>
     )
     .transform((value) => (value && value.length > 0 ? value : null));
 
-export const loginSchema = z.object({
-  username: z.string().trim().min(1).max(64),
-  password: z.string().min(1).max(256),
-});
-
 export const repoMetadataSchema = z.object({
   goal: nullableTrimmedText(280),
   statusOverride: z.enum(STATUS_VALUES).nullable().optional().default(null),

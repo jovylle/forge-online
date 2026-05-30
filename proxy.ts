@@ -1,22 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-import { ConfigError } from "@/lib/env";
-import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/session";
-
-const PUBLIC_PATHS = new Set([
-  "/login",
-  "/api/auth/login",
-  "/api/auth/logout",
-  "/favicon.ico",
-]);
+const PUBLIC_PATHS = new Set(["/login", "/favicon.ico"]);
 
 function isPublicPath(pathname: string) {
   if (PUBLIC_PATHS.has(pathname)) {
     return true;
   }
 
-  return pathname.startsWith("/_next/");
+  return pathname.startsWith("/_next/") || pathname.startsWith("/api/auth/");
 }
 
 function redirectToLogin(request: NextRequest) {
@@ -31,26 +24,18 @@ function redirectToLogin(request: NextRequest) {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const token = await getToken({
+    req: request,
+    secret: process.env.NEXTAUTH_SECRET,
+  });
 
   if (isPublicPath(pathname)) {
-    const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-
     if (pathname === "/login" && token) {
-      try {
-        const session = await verifySessionToken(token);
-
-        if (session) {
-          return NextResponse.redirect(new URL("/dashboard", request.url));
-        }
-      } catch {
-        return NextResponse.next();
-      }
+      return NextResponse.redirect(new URL("/dashboard", request.url));
     }
 
     return NextResponse.next();
   }
-
-  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
 
   if (!token) {
     if (pathname.startsWith("/api/")) {
@@ -60,23 +45,7 @@ export async function proxy(request: NextRequest) {
     return redirectToLogin(request);
   }
 
-  try {
-    const session = await verifySessionToken(token);
-
-    if (session) {
-      return NextResponse.next();
-    }
-  } catch (error) {
-    if (error instanceof ConfigError) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-  }
-
-  if (pathname.startsWith("/api/")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  return redirectToLogin(request);
+  return NextResponse.next();
 }
 
 export const config = {

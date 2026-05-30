@@ -10,14 +10,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit",
-    "hash-password": "node scripts/hash-password.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.105.4",
-    "bcryptjs": "^3.0.3",
-    "jose": "^6.2.3",
+    "@netlify/blobs": "^10.7.9",
     "next": "16.2.6",
+    "next-auth": "^4.24.14",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "zod": "^4.4.3"

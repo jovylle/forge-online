@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { signOut } from "next-auth/react";
 
 export function LogoutButton() {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -9,11 +10,11 @@ export function LogoutButton() {
     setIsSubmitting(true);
 
     try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
+      await signOut({
+        callbackUrl: "/login",
       });
     } finally {
-      window.location.href = "/login";
+      setIsSubmitting(false);
     }
   }
 

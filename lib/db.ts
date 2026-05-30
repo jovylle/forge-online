@@ -1,6 +1,6 @@
-import { createClient, type PostgrestError } from "@supabase/supabase-js";
+import { getStore } from "@netlify/blobs";
 
-import { getSupabaseEnv } from "@/lib/env";
+import { ConfigError } from "@/lib/env";
 import { enrichRepoWithStatus } from "@/lib/status";
 import type {
   DashboardPayload,
@@ -9,323 +9,350 @@ import type {
   RepoMetadata,
   RepoMetadataInput,
   RepositoryRecord,
+  SessionUser,
   SyncState,
 } from "@/lib/types";
 
-const GITHUB_SYNC_KEY = "github";
+const STORE_NAME = "forge-online";
+const SYNC_STATE_KEY = "state.json";
 
-type RepositoryRow = {
-  id: string;
-  github_repo_id: number;
-  name: string;
-  full_name: string;
-  owner_login: string;
-  is_private: boolean;
-  description: string | null;
-  default_branch: string | null;
-  primary_language: string | null;
-  topics: unknown;
-  updated_at_github: string | null;
-  pushed_at_github: string | null;
-  html_url: string;
-  homepage_url: string | null;
-  is_archived: boolean;
-  is_fork: boolean;
-  stargazer_count: number;
-  last_synced_at: string | null;
-  sync_source: "public" | "token";
-  hidden: boolean;
-  pinned: boolean;
-};
+type StoredRepository = RepositoryRecord;
 
-type RepoMetadataRow = {
-  repository_id: string;
-  goal: string | null;
-  status_override: RepoMetadata["statusOverride"];
-  notes: string | null;
-  next_step: string | null;
-  updated_at: string | null;
-};
+function getBlobsStore() {
+  const siteID = process.env.NETLIFY_BLOBS_SITE_ID?.trim();
+  const token = process.env.NETLIFY_BLOBS_TOKEN?.trim();
 
-type SyncStateRow = {
-  key: string;
-  last_synced_at: string | null;
-  status: SyncState["status"];
-  message: string | null;
-  updated_at: string | null;
-};
-
-function getSupabaseAdmin() {
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = getSupabaseEnv();
-
-  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
-
-function normalizeTopics(value: unknown) {
-  if (Array.isArray(value)) {
-    return value.filter((entry): entry is string => typeof entry === "string");
+  if (siteID && token) {
+    return getStore(STORE_NAME, { siteID, token });
   }
 
-  return [];
+  return getStore(STORE_NAME);
 }
 
-function mapRepositoryRow(row: RepositoryRow): RepositoryRecord {
-  return {
-    id: row.id,
-    githubRepoId: row.github_repo_id,
-    name: row.name,
-    fullName: row.full_name,
-    ownerLogin: row.owner_login,
-    isPrivate: row.is_private,
-    description: row.description,
-    defaultBranch: row.default_branch,
-    primaryLanguage: row.primary_language,
-    topics: normalizeTopics(row.topics),
-    updatedAtGithub: row.updated_at_github,
-    pushedAtGithub: row.pushed_at_github,
-    htmlUrl: row.html_url,
-    homepageUrl: row.homepage_url,
-    isArchived: row.is_archived,
-    isFork: row.is_fork,
-    stargazerCount: row.stargazer_count,
-    lastSyncedAt: row.last_synced_at,
-    syncSource: row.sync_source,
-    hidden: row.hidden,
-    pinned: row.pinned,
-  };
+function getUserBasePath(user: SessionUser) {
+  const encodedUserId = encodeURIComponent(user.githubUserId);
+  return `users/${encodedUserId}`;
 }
 
-function mapRepoMetadataRow(row: RepoMetadataRow): RepoMetadata {
-  return {
-    repositoryId: row.repository_id,
-    goal: row.goal,
-    statusOverride: row.status_override,
-    notes: row.notes,
-    nextStep: row.next_step,
-    updatedAt: row.updated_at,
-  };
+function getRepoKey(user: SessionUser, repoId: string) {
+  return `${getUserBasePath(user)}/repos/${repoId}.json`;
 }
 
-function mapSyncStateRow(row: SyncStateRow): SyncState {
-  return {
-    key: row.key,
-    lastSyncedAt: row.last_synced_at,
-    status: row.status,
-    message: row.message,
-    updatedAt: row.updated_at,
-  };
+function getMetadataKey(user: SessionUser, repoId: string) {
+  return `${getUserBasePath(user)}/metadata/${repoId}.json`;
 }
 
-function formatSupabaseError(error: PostgrestError) {
-  const parts = [error.message, error.details, error.hint].filter(
-    (part): part is string => Boolean(part && String(part).trim()),
-  );
-  const base = parts.join(" — ").trim() || "Supabase request failed";
-  return error.code ? `${base} (code ${error.code})` : base;
+function getSyncStateKey(user: SessionUser) {
+  return `${getUserBasePath(user)}/sync/${SYNC_STATE_KEY}`;
 }
 
-function assertNoError(error: PostgrestError | null) {
-  if (error) {
-    throw new Error(formatSupabaseError(error));
+function getPrefixForRepos(user: SessionUser) {
+  return `${getUserBasePath(user)}/repos/`;
+}
+
+function getPrefixForMetadata(user: SessionUser) {
+  return `${getUserBasePath(user)}/metadata/`;
+}
+
+function parseRepoIdFromKey(key: string) {
+  const lastSegment = key.split("/").pop();
+  if (!lastSegment || !lastSegment.endsWith(".json")) {
+    return null;
   }
+
+  return lastSegment.slice(0, -".json".length);
 }
 
-export async function getDashboardData(): Promise<DashboardPayload> {
-  const supabase = getSupabaseAdmin();
+async function listAllBlobKeys(prefix: string) {
+  const store = getBlobsStore();
+  const keys: string[] = [];
 
-  const [repositoriesResult, metadataResult, syncStateResult] = await Promise.all([
-    supabase
-      .from("repositories")
-      .select(
-        "id, github_repo_id, name, full_name, owner_login, is_private, description, default_branch, primary_language, topics, updated_at_github, pushed_at_github, html_url, homepage_url, is_archived, is_fork, stargazer_count, last_synced_at, sync_source, hidden, pinned",
-      )
-      .order("pinned", { ascending: false })
-      .order("pushed_at_github", { ascending: false, nullsFirst: false })
-      .order("updated_at_github", { ascending: false, nullsFirst: false }),
-    supabase
-      .from("repo_metadata")
-      .select("repository_id, goal, status_override, notes, next_step, updated_at"),
-    supabase
-      .from("sync_state")
-      .select("key, last_synced_at, status, message, updated_at")
-      .eq("key", GITHUB_SYNC_KEY)
-      .maybeSingle(),
-  ]);
+  for await (const page of store.list({ prefix, paginate: true })) {
+    for (const blob of page.blobs) {
+      keys.push(blob.key);
+    }
+  }
 
-  assertNoError(repositoriesResult.error);
-  assertNoError(metadataResult.error);
-  assertNoError(syncStateResult.error);
+  return keys;
+}
 
-  const metadataByRepoId = new Map(
-    (metadataResult.data ?? []).map((row) => {
-      const metadata = mapRepoMetadataRow(row as RepoMetadataRow);
-      return [metadata.repositoryId, metadata] as const;
-    }),
-  );
+async function readBlobJson<T>(key: string) {
+  const store = getBlobsStore();
+  return (await store.get(key, { type: "json" })) as T | null;
+}
 
-  const repos = (repositoriesResult.data ?? [])
-    .map((row) => mapRepositoryRow(row as RepositoryRow))
-    .filter((repo) => !repo.hidden)
-    .map((repo) => enrichRepoWithStatus(repo, metadataByRepoId.get(repo.id) ?? null));
+async function writeBlobJson(key: string, value: unknown) {
+  const store = getBlobsStore();
+  await store.setJSON(key, value);
+}
+
+function asRepositoryRecord(value: unknown): RepositoryRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const repo = value as Partial<StoredRepository>;
+  if (
+    typeof repo.id !== "string" ||
+    typeof repo.githubRepoId !== "number" ||
+    typeof repo.name !== "string" ||
+    typeof repo.fullName !== "string" ||
+    typeof repo.ownerLogin !== "string" ||
+    typeof repo.isPrivate !== "boolean" ||
+    typeof repo.htmlUrl !== "string" ||
+    typeof repo.isArchived !== "boolean" ||
+    typeof repo.isFork !== "boolean" ||
+    typeof repo.stargazerCount !== "number" ||
+    typeof repo.syncSource !== "string" ||
+    typeof repo.hidden !== "boolean" ||
+    typeof repo.pinned !== "boolean"
+  ) {
+    return null;
+  }
 
   return {
-    repos,
-    syncState: syncStateResult.data
-      ? mapSyncStateRow(syncStateResult.data as SyncStateRow)
-      : null,
+    id: repo.id,
+    githubRepoId: repo.githubRepoId,
+    name: repo.name,
+    fullName: repo.fullName,
+    ownerLogin: repo.ownerLogin,
+    isPrivate: repo.isPrivate,
+    description: repo.description ?? null,
+    defaultBranch: repo.defaultBranch ?? null,
+    primaryLanguage: repo.primaryLanguage ?? null,
+    topics: Array.isArray(repo.topics)
+      ? repo.topics.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    createdAtGithub: repo.createdAtGithub ?? null,
+    updatedAtGithub: repo.updatedAtGithub ?? null,
+    pushedAtGithub: repo.pushedAtGithub ?? null,
+    htmlUrl: repo.htmlUrl,
+    homepageUrl: repo.homepageUrl ?? null,
+    isArchived: repo.isArchived,
+    isFork: repo.isFork,
+    stargazerCount: repo.stargazerCount,
+    lastSyncedAt: repo.lastSyncedAt ?? null,
+    syncSource: repo.syncSource === "public" ? "public" : "token",
+    hidden: repo.hidden,
+    pinned: repo.pinned,
   };
 }
 
-export async function getRepoMetadata(repositoryId: string) {
-  const supabase = getSupabaseAdmin();
-  const result = await supabase
-    .from("repo_metadata")
-    .select("repository_id, goal, status_override, notes, next_step, updated_at")
-    .eq("repository_id", repositoryId)
-    .maybeSingle();
+function asRepoMetadata(value: unknown): RepoMetadata | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
 
-  assertNoError(result.error);
+  const metadata = value as Partial<RepoMetadata>;
+  if (typeof metadata.repositoryId !== "string") {
+    return null;
+  }
 
-  return result.data ? mapRepoMetadataRow(result.data as RepoMetadataRow) : null;
+  return {
+    repositoryId: metadata.repositoryId,
+    goal: metadata.goal ?? null,
+    statusOverride:
+      metadata.statusOverride === "active" ||
+      metadata.statusOverride === "wip" ||
+      metadata.statusOverride === "abandoned" ||
+      metadata.statusOverride === "done"
+        ? metadata.statusOverride
+        : null,
+    notes: metadata.notes ?? null,
+    nextStep: metadata.nextStep ?? null,
+    updatedAt: metadata.updatedAt ?? null,
+  };
 }
 
-export async function upsertRepoMetadata(
-  repositoryId: string,
-  input: RepoMetadataInput,
-) {
-  const supabase = getSupabaseAdmin();
+function asSyncState(value: unknown): SyncState | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
 
-  const result = await supabase
-    .from("repo_metadata")
-    .upsert(
-      {
-        repository_id: repositoryId,
-        goal: input.goal,
-        status_override: input.statusOverride,
-        notes: input.notes,
-        next_step: input.nextStep,
-      },
-      {
-        onConflict: "repository_id",
-      },
-    )
-    .select("repository_id, goal, status_override, notes, next_step, updated_at")
-    .single();
+  const state = value as Partial<SyncState>;
+  if (
+    typeof state.key !== "string" ||
+    (state.status !== "idle" && state.status !== "success" && state.status !== "error")
+  ) {
+    return null;
+  }
 
-  assertNoError(result.error);
-
-  return mapRepoMetadataRow(result.data as RepoMetadataRow);
+  return {
+    key: state.key,
+    lastSyncedAt: state.lastSyncedAt ?? null,
+    status: state.status,
+    message: state.message ?? null,
+    updatedAt: state.updatedAt ?? null,
+  };
 }
 
-export async function updateSyncState(
-  input: Pick<SyncState, "lastSyncedAt" | "message" | "status">,
-) {
-  const supabase = getSupabaseAdmin();
-
-  const result = await supabase
-    .from("sync_state")
-    .upsert(
-      {
-        key: GITHUB_SYNC_KEY,
-        last_synced_at: input.lastSyncedAt,
-        message: input.message,
-        status: input.status,
-      },
-      {
-        onConflict: "key",
-      },
-    )
-    .select("key, last_synced_at, status, message, updated_at")
-    .single();
-
-  assertNoError(result.error);
-
-  return mapSyncStateRow(result.data as SyncStateRow);
-}
-
-const UPSERT_CHUNK_SIZE = 100;
-
-function mapRepoToRow(
+function mapRepoToRecord(
   repo: GitHubRepositoryResponse,
   mode: GitHubSyncSummary["mode"],
   syncedAt: string,
 ) {
+  const stableId = String(repo.id);
+
   return {
-    github_repo_id: repo.id,
+    id: stableId,
+    githubRepoId: repo.id,
     name: repo.name,
-    full_name: repo.full_name,
-    owner_login: repo.owner.login,
-    is_private: repo.private,
+    fullName: repo.full_name,
+    ownerLogin: repo.owner.login,
+    isPrivate: repo.private,
     description: repo.description,
-    default_branch: repo.default_branch,
-    primary_language: repo.language,
+    defaultBranch: repo.default_branch,
+    primaryLanguage: repo.language,
     topics: repo.topics ?? [],
-    updated_at_github: repo.updated_at,
-    pushed_at_github: repo.pushed_at,
-    html_url: repo.html_url,
-    homepage_url: repo.homepage,
-    is_archived: repo.archived,
-    is_fork: repo.fork,
-    stargazer_count: repo.stargazers_count,
-    last_synced_at: syncedAt,
-    sync_source: mode,
+    createdAtGithub: repo.created_at ?? null,
+    updatedAtGithub: repo.updated_at,
+    pushedAtGithub: repo.pushed_at,
+    htmlUrl: repo.html_url,
+    homepageUrl: repo.homepage,
+    isArchived: repo.archived,
+    isFork: repo.fork,
+    stargazerCount: repo.stargazers_count,
+    lastSyncedAt: syncedAt,
+    syncSource: mode,
+    hidden: false,
+    pinned: false,
+  } satisfies StoredRepository;
+}
+
+function sortRepositories(left: RepositoryRecord, right: RepositoryRecord) {
+  if (left.pinned !== right.pinned) {
+    return left.pinned ? -1 : 1;
+  }
+
+  const pushedLeft = Date.parse(left.pushedAtGithub ?? "");
+  const pushedRight = Date.parse(right.pushedAtGithub ?? "");
+  const pushedDelta =
+    (Number.isNaN(pushedRight) ? 0 : pushedRight) -
+    (Number.isNaN(pushedLeft) ? 0 : pushedLeft);
+
+  if (pushedDelta !== 0) {
+    return pushedDelta;
+  }
+
+  const updatedLeft = Date.parse(left.updatedAtGithub ?? "");
+  const updatedRight = Date.parse(right.updatedAtGithub ?? "");
+  return (
+    (Number.isNaN(updatedRight) ? 0 : updatedRight) -
+    (Number.isNaN(updatedLeft) ? 0 : updatedLeft)
+  );
+}
+
+export async function getDashboardData(user: SessionUser): Promise<DashboardPayload> {
+  try {
+    const [repoKeys, metadataKeys, rawSyncState] = await Promise.all([
+      listAllBlobKeys(getPrefixForRepos(user)),
+      listAllBlobKeys(getPrefixForMetadata(user)),
+      readBlobJson<unknown>(getSyncStateKey(user)),
+    ]);
+
+    const [rawRepos, rawMetadata] = await Promise.all([
+      Promise.all(repoKeys.map((key) => readBlobJson<unknown>(key))),
+      Promise.all(metadataKeys.map((key) => readBlobJson<unknown>(key))),
+    ]);
+
+    const metadataByRepoId = new Map<string, RepoMetadata>();
+    for (const entry of rawMetadata) {
+      const metadata = asRepoMetadata(entry);
+      if (metadata) {
+        metadataByRepoId.set(metadata.repositoryId, metadata);
+      }
+    }
+
+    const repos = rawRepos
+      .map((entry) => asRepositoryRecord(entry))
+      .filter((entry): entry is RepositoryRecord => Boolean(entry))
+      .filter((repo) => !repo.hidden)
+      .sort(sortRepositories)
+      .map((repo) =>
+        enrichRepoWithStatus(repo, metadataByRepoId.get(repo.id) ?? null),
+      );
+
+    return {
+      repos,
+      syncState: asSyncState(rawSyncState),
+    };
+  } catch (error) {
+    console.error("[blobs] Failed to load dashboard data", error);
+    throw new ConfigError(
+      `Netlify Blobs request failed while loading dashboard data. ${error instanceof Error ? error.message : ""}`.trim(),
+    );
+  }
+}
+
+export async function getRepoMetadata(user: SessionUser, repositoryId: string) {
+  const metadata = await readBlobJson<unknown>(getMetadataKey(user, repositoryId));
+  return asRepoMetadata(metadata);
+}
+
+export async function upsertRepoMetadata(
+  user: SessionUser,
+  repositoryId: string,
+  input: RepoMetadataInput,
+) {
+  const value: RepoMetadata = {
+    repositoryId,
+    goal: input.goal,
+    statusOverride: input.statusOverride,
+    notes: input.notes,
+    nextStep: input.nextStep,
+    updatedAt: new Date().toISOString(),
   };
+
+  await writeBlobJson(getMetadataKey(user, repositoryId), value);
+  return value;
+}
+
+export async function updateSyncState(
+  user: SessionUser,
+  input: Pick<SyncState, "lastSyncedAt" | "message" | "status">,
+) {
+  const value: SyncState = {
+    key: "github",
+    lastSyncedAt: input.lastSyncedAt,
+    status: input.status,
+    message: input.message,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await writeBlobJson(getSyncStateKey(user), value);
+  return value;
 }
 
 export async function upsertGitHubRepositories(
+  user: SessionUser,
   repositories: GitHubRepositoryResponse[],
   mode: GitHubSyncSummary["mode"],
 ) {
-  if (repositories.length === 0) {
-    return {
-      inserted: 0,
-      updated: 0,
-      skipped: 0,
-      syncedAt: new Date().toISOString(),
-    };
-  }
-
-  const supabase = getSupabaseAdmin();
   const syncedAt = new Date().toISOString();
+  const existingKeys = await listAllBlobKeys(getPrefixForRepos(user));
+  const existingRepoIds = new Set(
+    existingKeys
+      .map((key) => parseRepoIdFromKey(key))
+      .filter((entry): entry is string => Boolean(entry)),
+  );
 
   let inserted = 0;
   let updated = 0;
 
-  for (let i = 0; i < repositories.length; i += UPSERT_CHUNK_SIZE) {
-    const chunk = repositories.slice(i, i + UPSERT_CHUNK_SIZE);
-    const chunkIds = chunk.map((repo) => repo.id);
+  await Promise.all(
+    repositories.map(async (repo) => {
+      const repoId = String(repo.id);
+      const row = mapRepoToRecord(repo, mode, syncedAt);
 
-    const existingResult = await supabase
-      .from("repositories")
-      .select("github_repo_id")
-      .in("github_repo_id", chunkIds);
+      await writeBlobJson(getRepoKey(user, repoId), row);
 
-    assertNoError(existingResult.error);
-
-    const existingIds = new Set(
-      (existingResult.data ?? []).map((row) => row.github_repo_id as number),
-    );
-
-    const rows = chunk.map((repo) => mapRepoToRow(repo, mode, syncedAt));
-
-    const upsertResult = await supabase
-      .from("repositories")
-      .upsert(rows, { onConflict: "github_repo_id" })
-      .select("github_repo_id");
-
-    assertNoError(upsertResult.error);
-
-    const chunkInserted = rows.filter(
-      (row) => !existingIds.has(row.github_repo_id),
-    ).length;
-    inserted += chunkInserted;
-    updated += rows.length - chunkInserted;
-  }
+      if (existingRepoIds.has(repoId)) {
+        updated += 1;
+      } else {
+        inserted += 1;
+      }
+    }),
+  );
 
   return {
     inserted,

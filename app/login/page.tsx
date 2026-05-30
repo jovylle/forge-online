@@ -42,26 +42,24 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </div>
             <div className="space-y-5">
               <h1 className="max-w-2xl text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                Your private GitHub project monitor, built for the web.
+                Understand your GitHub progress from one dashboard.
               </h1>
               <p className="max-w-2xl text-base leading-7 text-zinc-300 sm:text-lg">
-                Browse owned repositories, keep Forge-style notes beside each repo,
-                and sync everything from GitHub without exposing secrets to the browser.
+                Sign in with GitHub, sync repositories (including private repos when
+                authorized), and keep Forge-style notes without local setup.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                <p className="text-sm font-medium text-zinc-100">Public by default</p>
+                <p className="text-sm font-medium text-zinc-100">Per-user repository view</p>
                 <p className="mt-2 text-sm leading-6 text-zinc-400">
-                  Run with just a GitHub username, then opt into private repositories by
-                  adding a token later.
+                  Each user sees only repositories available from their own GitHub account.
                 </p>
               </div>
               <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                <p className="text-sm font-medium text-zinc-100">Single-owner secure</p>
+                <p className="text-sm font-medium text-zinc-100">Private repos supported</p>
                 <p className="mt-2 text-sm leading-6 text-zinc-400">
-                  Owner-only access uses signed HTTP-only cookies and keeps GitHub credentials
-                  on the server.
+                  Forge Online requests GitHub access through OAuth and keeps token usage server-side.
                 </p>
               </div>
             </div>
@@ -69,9 +67,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
           <section className="mx-auto w-full max-w-md">
             <div className="mb-4 space-y-2">
-              <h2 className="text-2xl font-semibold text-white">Owner login</h2>
+              <h2 className="text-2xl font-semibold text-white">Sign in</h2>
               <p className="text-sm leading-6 text-zinc-400">
-                Use the credentials defined by your deployment environment to open the dashboard.
+                Continue with GitHub to open your personal Forge dashboard.
               </p>
             </div>
             <LoginForm nextPath={nextPath} configError={configError} />

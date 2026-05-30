@@ -1,44 +1,35 @@
 # Forge Online
 
-`forge-online` is a private, single-owner dashboard for monitoring personal GitHub repositories online. It is inspired by a local Forge workflow, but it does not read local folders or depend on filesystem access. GitHub is the source of truth for repositories, while Supabase stores Forge-style metadata such as goals, notes, and next steps.
+`forge-online` is a multi-user GitHub repository dashboard. Users sign in with GitHub OAuth, sync their own repositories, and track project progress using Forge-style metadata (`goal`, `status`, `notes`, `nextStep`).
 
 ## What it does
 
-- Protects the entire app with owner-only login based on environment variables.
-- Fetches owned repositories from GitHub on the server only.
-- Works in public-only mode without a GitHub token.
-- Includes private owned repositories when `GITHUB_TOKEN` is configured.
-- Caches repository data in Supabase so the dashboard loads quickly.
-- Lets you edit Forge metadata per repository:
-  - `goal`
-  - `status`
-  - `notes`
-  - `nextStep`
-- Supports search, filtering, sorting, summary counts, and manual sync.
+- Authenticates users with GitHub OAuth.
+- Syncs authenticated users' owned repositories from GitHub (including private repos when permission is granted).
+- Stores per-user cache, metadata, and sync state in Netlify Blobs.
+- Supports search, filters, sorting, summary cards, and manual sync.
+- Computes automatic status heuristics (`active`, `wip`, `abandoned`) with manual override support (`done` included).
 
 ## Stack
 
 - Next.js 16 App Router
 - TypeScript
 - Tailwind CSS 4
-- Supabase Postgres
-- Signed HTTP-only cookie auth with `jose`
-- `bcryptjs` for secure password verification
-- Zod for validation
-- Netlify Next.js Runtime via `@netlify/plugin-nextjs`
+- Auth.js (`next-auth`) with GitHub provider
+- Netlify Blobs (`@netlify/blobs`)
+- Zod validation
+- Netlify Next.js Runtime (`@netlify/plugin-nextjs`)
 
 ## Architecture notes
 
-- All GitHub access happens in server-side route handlers under `app/api`.
-- Secrets never ship to the browser.
-- Supabase is used from the server with the service role key.
-- Repository sync is idempotent and upserts by `github_repo_id`.
-- Forge metadata is stored separately from cached GitHub repository data.
-- This project uses `proxy.ts` for request protection because Next.js 16 renamed the old `middleware.ts` convention.
+- GitHub API calls run only on the server.
+- OAuth access tokens stay server-side.
+- Netlify Blobs keys are scoped per authenticated GitHub user.
+- `proxy.ts` enforces auth redirects for pages and API calls.
 
 ## Required environment variables
 
-Copy `.env.example` to `.env.local` for local development and configure the same values in Netlify for production.
+Copy `.env.example` to `.env.local` for local development and configure the same values in Netlify production:
 
 ```bash
 cp .env.example .env.local
@@ -46,45 +37,16 @@ cp .env.example .env.local
 
 ### Authentication
 
-- `FORGE_OWNER_USERNAME`
-- `FORGE_OWNER_PASSWORD_HASH`
-- `SESSION_SECRET`
+- `AUTH_GITHUB_ID`
+- `AUTH_GITHUB_SECRET`
+- `NEXTAUTH_SECRET`
 
-Generate the password hash with:
+### Optional local/off-platform Blobs credentials
 
-```bash
-npm run hash-password -- "your-password"
-```
+These are usually not needed on Netlify runtime:
 
-### GitHub
-
-- `GITHUB_USERNAME`
-- `GITHUB_TOKEN` (optional)
-
-Behavior:
-
-- No `GITHUB_TOKEN`: sync public owned repositories only.
-- With `GITHUB_TOKEN`: sync owned repositories including private ones.
-
-### Supabase
-
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-
-## Supabase setup
-
-Create a Supabase project, then apply the SQL migration in `supabase/migrations/0001_initial.sql`.
-
-You can do this in either of these ways:
-
-1. Open the Supabase SQL editor and run the file contents manually.
-2. Use the Supabase CLI if you already have it wired into your workflow.
-
-The schema creates:
-
-- `repositories` for cached GitHub repository data
-- `repo_metadata` for Forge-specific notes and status overrides
-- `sync_state` for the latest GitHub sync result
+- `NETLIFY_BLOBS_SITE_ID`
+- `NETLIFY_BLOBS_TOKEN`
 
 ## Local development
 
@@ -95,26 +57,23 @@ npm install
 ```
 
 2. Create `.env.local` from `.env.example`.
-
-3. Apply the Supabase migration.
-
-4. Start the app:
+3. Start the app:
 
 ```bash
 npm run dev
 ```
 
-5. Open [http://localhost:3000](http://localhost:3000).
+4. Open [http://localhost:3000](http://localhost:3000).
 
 ## Status heuristics
 
-If a repository does not have a manual status override, Forge Online auto-suggests a status from GitHub activity:
+When no manual override is set:
 
 - pushed or updated within 30 days -> `active`
 - pushed or updated within 90 days -> `wip`
 - older than 90 days -> `abandoned`
 - archived repositories default to `abandoned`
-- any manual override wins, including `done`
+- manual override always wins
 
 ## Main routes
 
@@ -130,34 +89,32 @@ If a repository does not have a manual status override, Forge Online auto-sugges
 - `GET /api/repos/[repoId]/metadata`
 - `PUT /api/repos/[repoId]/metadata`
 
-### Public auth routes
+### Auth routes
 
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
+- `GET|POST /api/auth/[...nextauth]`
 
 ## Netlify deployment
 
-This repo includes `netlify.toml` and pins the Netlify Next.js Runtime through `@netlify/plugin-nextjs`.
+This repo includes `netlify.toml` and pins the Netlify Next.js Runtime via `@netlify/plugin-nextjs`.
 
 ### Deploy steps
 
 1. Push the repository to GitHub.
-2. Create a new Netlify site from the repo.
-3. Add all environment variables from `.env.example` in Netlify.
-4. Make sure the Supabase migration has already been applied.
-5. Trigger a deploy.
+2. Create a Netlify site from the repo.
+3. Add all required environment variables from `.env.example`.
+4. Trigger a deploy.
 
 ### Notes
 
-- Netlify should detect this as a Next.js site automatically, but the repo includes `netlify.toml` to keep the runtime explicit.
-- Cookies are marked `Secure` automatically in production.
-- The app is designed for a single owner, not multi-tenant usage.
+- Netlify should auto-detect Next.js.
+- Cookie security is handled by Auth.js and production HTTPS.
+- No Supabase setup is required.
 
 ## Verification checklist
 
-- Login works with the owner credentials.
+- GitHub sign-in succeeds and redirects to `/dashboard`.
 - Unauthenticated requests redirect to `/login` or return `401` for protected APIs.
-- Public-only sync works without a GitHub token.
-- Private repositories appear after setting `GITHUB_TOKEN`.
-- Metadata edits survive repeated syncs.
-- The dashboard shows last sync state and GitHub cache results.
+- Sync loads owned repositories for the authenticated user.
+- Private repositories appear when OAuth permission includes private repo access.
+- Metadata edits persist and remain user-scoped.
+- Dashboard loads without server render crash after login.

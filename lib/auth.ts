@@ -1,11 +1,8 @@
-import { createHash, timingSafeEqual } from "node:crypto";
-
-import bcrypt from "bcryptjs";
+import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
-import { getAuthEnv } from "@/lib/env";
-import { readSessionFromCookies } from "@/lib/session";
-import type { LoginRequest } from "@/lib/types";
+import { authOptions } from "@/lib/auth-options";
+import type { SessionUser } from "@/lib/types";
 
 export class UnauthorizedError extends Error {
   constructor(message = "Unauthorized") {
@@ -14,34 +11,40 @@ export class UnauthorizedError extends Error {
   }
 }
 
-function digest(value: string) {
-  return createHash("sha256").update(value).digest();
-}
+type SessionLike = {
+  user?: {
+    id?: string;
+    login?: string;
+  };
+  accessToken?: string;
+} | null;
 
-function safeEqual(a: string, b: string) {
-  return timingSafeEqual(digest(a), digest(b));
-}
+function toSessionUser(session: SessionLike) {
+  const githubUserId = session?.user?.id;
+  const login = session?.user?.login;
+  const accessToken = session?.accessToken;
 
-export async function verifyOwnerCredentials(input: LoginRequest) {
-  const { FORGE_OWNER_USERNAME, FORGE_OWNER_PASSWORD_HASH } = getAuthEnv();
+  if (!githubUserId || !login || !accessToken) {
+    return null;
+  }
 
-  const usernameMatches = safeEqual(input.username, FORGE_OWNER_USERNAME);
-  const passwordMatches = await bcrypt.compare(
-    input.password,
-    FORGE_OWNER_PASSWORD_HASH,
-  );
-
-  return usernameMatches && passwordMatches;
+  return {
+    githubUserId,
+    login,
+    accessToken,
+  } satisfies SessionUser;
 }
 
 export async function getCurrentSession() {
-  return readSessionFromCookies();
+  const session = (await getServerSession(authOptions)) as SessionLike;
+  return toSessionUser(session);
 }
 
 export async function requirePageSession() {
   const session = await getCurrentSession();
 
   if (!session) {
+    console.warn("[auth] Missing session in page request, redirecting to /login");
     redirect("/login");
   }
 
@@ -52,6 +55,7 @@ export async function requireApiSession() {
   const session = await getCurrentSession();
 
   if (!session) {
+    console.warn("[auth] Missing session in API request");
     throw new UnauthorizedError();
   }
 

@@ -78,6 +78,7 @@ export function RepoToolbar({
           onChange={(event) => onSortByChange(event.target.value as SortOption)}
           className="w-full rounded-2xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm text-zinc-100 outline-none focus:border-cyan-400"
         >
+          <option value="created">Created date</option>
           <option value="pushed">Pushed date</option>
           <option value="updated">Updated date</option>
           <option value="name">Name</option>

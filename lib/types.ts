@@ -2,12 +2,14 @@ export const STATUS_VALUES = ["active", "wip", "abandoned", "done"] as const;
 
 export type RepoStatus = (typeof STATUS_VALUES)[number];
 
-export type SortOption = "pushed" | "updated" | "name" | "status";
+export type SortOption = "created" | "pushed" | "updated" | "name" | "status";
 export type VisibilityFilter = "all" | "public" | "private";
 export type StatusFilter = "all" | RepoStatus;
 
 export interface SessionUser {
-  username: string;
+  githubUserId: string;
+  login: string;
+  accessToken: string;
 }
 
 export interface RepoMetadata {
@@ -30,6 +32,7 @@ export interface RepositoryRecord {
   defaultBranch: string | null;
   primaryLanguage: string | null;
   topics: string[];
+  createdAtGithub: string | null;
   updatedAtGithub: string | null;
   pushedAtGithub: string | null;
   htmlUrl: string;
@@ -62,11 +65,6 @@ export interface DashboardPayload {
   syncState: SyncState | null;
 }
 
-export interface LoginRequest {
-  username: string;
-  password: string;
-}
-
 export interface RepoMetadataInput {
   goal: string | null;
   statusOverride: RepoStatus | null;
@@ -83,6 +81,7 @@ export interface GitHubRepositoryResponse {
   default_branch: string | null;
   language: string | null;
   topics?: string[];
+  created_at?: string | null;
   updated_at: string;
   pushed_at: string | null;
   html_url: string;

@@ -1,6 +1,9 @@
 import { updateSyncState, upsertGitHubRepositories } from "@/lib/db";
-import { ConfigError, getGitHubEnv } from "@/lib/env";
-import type { GitHubRepositoryResponse, GitHubSyncSummary } from "@/lib/types";
+import type {
+  GitHubRepositoryResponse,
+  GitHubSyncSummary,
+  SessionUser,
+} from "@/lib/types";
 
 const GITHUB_API_URL = "https://api.github.com";
 const PAGE_SIZE = 100;
@@ -41,7 +44,7 @@ async function requestGitHub<T>(path: string, token?: string): Promise<T> {
     let userMessage = "GitHub request failed. Please try again.";
 
     if (response.status === 401) {
-      userMessage = "GitHub rejected the configured token. Check GITHUB_TOKEN.";
+      userMessage = "GitHub OAuth token is invalid or expired. Sign in again.";
     } else if (response.status === 403 || response.status === 429) {
       const remaining = response.headers.get("x-ratelimit-remaining");
       userMessage =
@@ -49,8 +52,7 @@ async function requestGitHub<T>(path: string, token?: string): Promise<T> {
           ? "GitHub rate limit reached. Wait a bit and try syncing again."
           : "GitHub temporarily refused the request. Try again in a few minutes.";
     } else if (response.status === 404) {
-      userMessage =
-        "GitHub could not find the configured account or endpoint. Check GITHUB_USERNAME.";
+      userMessage = "GitHub account endpoint was not found for this session.";
     }
 
     throw new GitHubApiError(
@@ -87,10 +89,6 @@ function safeSyncFailureMessage(error: unknown): string {
     return error.userMessage;
   }
 
-  if (error instanceof ConfigError) {
-    return error.message;
-  }
-
   if (error instanceof Error && error.message.trim()) {
     let text = error.message.trim();
     if (text.length > MAX_CLIENT_ERROR_LENGTH) {
@@ -124,44 +122,34 @@ async function fetchAllPages(
   return results;
 }
 
-export async function fetchOwnedRepositories() {
-  const { GITHUB_TOKEN, GITHUB_USERNAME } = getGitHubEnv();
-
-  if (GITHUB_TOKEN) {
-    const repos = await fetchAllPages(
-      (page) =>
-        `/user/repos?affiliation=owner&visibility=all&sort=updated&per_page=${PAGE_SIZE}&page=${page}`,
-      GITHUB_TOKEN,
-    );
-
-    return {
-      mode: "token" as const,
-      repos: repos.filter((repo) => repo.owner.login === GITHUB_USERNAME),
-    };
-  }
-
+export async function fetchOwnedRepositories(session: SessionUser) {
   const repos = await fetchAllPages(
     (page) =>
-      `/users/${encodeURIComponent(GITHUB_USERNAME)}/repos?type=owner&sort=updated&per_page=${PAGE_SIZE}&page=${page}`,
+      `/user/repos?affiliation=owner&visibility=all&sort=updated&per_page=${PAGE_SIZE}&page=${page}`,
+    session.accessToken,
   );
 
   return {
-    mode: "public" as const,
-    repos,
+    mode: "token" as const,
+    repos: repos.filter(
+      (repo) => repo.owner.login.toLowerCase() === session.login.toLowerCase(),
+    ),
   };
 }
 
-export async function syncGitHubRepositories(): Promise<GitHubSyncSummary> {
+export async function syncGitHubRepositories(
+  session: SessionUser,
+): Promise<GitHubSyncSummary> {
   try {
-    const { mode, repos } = await fetchOwnedRepositories();
-    const upsertSummary = await upsertGitHubRepositories(repos, mode);
+    const { mode, repos } = await fetchOwnedRepositories(session);
+    const upsertSummary = await upsertGitHubRepositories(session, repos, mode);
     const completedAt = upsertSummary.syncedAt;
     const message =
       repos.length === 0
         ? "No repositories were returned from GitHub."
         : `Synced ${repos.length} repositories from GitHub.`;
 
-    await updateSyncState({
+    await updateSyncState(session, {
       lastSyncedAt: completedAt,
       status: "success",
       message,
@@ -182,7 +170,7 @@ export async function syncGitHubRepositories(): Promise<GitHubSyncSummary> {
     const message = safeSyncFailureMessage(error);
 
     try {
-      await updateSyncState({
+      await updateSyncState(session, {
         lastSyncedAt: completedAt,
         status: "error",
         message,

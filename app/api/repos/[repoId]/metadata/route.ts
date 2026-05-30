@@ -16,10 +16,10 @@ export async function GET(
   context: MetadataRouteContext,
 ) {
   try {
-    await requireApiSession();
+    const session = await requireApiSession();
     const { repoId } = await context.params;
 
-    const metadata = await getRepoMetadata(repoId);
+    const metadata = await getRepoMetadata(session, repoId);
     return Response.json({ metadata });
   } catch (error) {
     return errorResponse(error);
@@ -31,10 +31,10 @@ export async function PUT(
   context: MetadataRouteContext,
 ) {
   try {
-    await requireApiSession();
+    const session = await requireApiSession();
     const { repoId } = await context.params;
     const input = await readJsonBody(request, repoMetadataSchema);
-    const metadata = await upsertRepoMetadata(repoId, input);
+    const metadata = await upsertRepoMetadata(session, repoId, input);
 
     return Response.json({ metadata });
   } catch (error) {

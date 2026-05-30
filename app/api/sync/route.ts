@@ -7,10 +7,10 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    await requireApiSession();
+    const session = await requireApiSession();
     await readJsonBody(request, syncRequestSchema, {});
 
-    const summary = await syncGitHubRepositories();
+    const summary = await syncGitHubRepositories(session);
     return Response.json(summary);
   } catch (error) {
     if (error instanceof GitHubApiError) {
